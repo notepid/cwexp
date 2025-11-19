@@ -529,9 +529,12 @@ function stopWaterfall() {
   updateWaterfallControls();
 }
 
+// Gamma correction exponent for perceptual brightness mapping in waterfall display
+const BRIGHTNESS_GAMMA = 1.4; // Gamma correction for perceptual brightness
+
 // Map magnitude (0..1) to RGB color
 function magnitudeToColor(mag) {
-  const brightness = Math.pow(Math.max(0, Math.min(1, mag)), 1.4);
+  const brightness = Math.pow(Math.max(0, Math.min(1, mag)), BRIGHTNESS_GAMMA);
   const r = 20 + Math.floor(80 * brightness);
   const g = 80 + Math.floor(160 * brightness);
   const b = 120 + Math.floor(135 * brightness);
