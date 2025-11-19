@@ -112,6 +112,7 @@ let ws = null;
 let audioContext = null;
 let isAudioClient = false;
 let isPlaying = false;
+let isPlaybackEnabled = false; // Continuous playback mode
 let shouldStop = false;
 let clientId = null;
 let backlog = [];
@@ -275,8 +276,17 @@ function updateAudioUI(audioClientId) {
 function updateAudioButtons() {
   claimAudioBtn.disabled = isAudioClient;
   releaseAudioBtn.disabled = !isAudioClient;
-  playAllBtn.disabled = !isAudioClient || backlog.length === 0 || isPlaying;
-  stopBtn.disabled = !isPlaying;
+  playAllBtn.disabled = !isAudioClient;
+  stopBtn.disabled = !isPlaybackEnabled;
+  
+  // Update button text based on playback mode
+  if (isPlaybackEnabled) {
+    playAllBtn.textContent = 'Disable Playback';
+    playAllBtn.className = 'btn btn-warning';
+  } else {
+    playAllBtn.textContent = 'Play All';
+    playAllBtn.className = 'btn btn-success';
+  }
 }
 
 // Convert callsign to Morse code string
@@ -400,28 +410,43 @@ async function playCallsign(item) {
   updateAudioButtons();
 }
 
-// Play all callsigns in backlog
+// Play all callsigns in backlog (continuous mode)
 async function playAll() {
-  if (!isAudioClient || backlog.length === 0) return;
+  if (!isAudioClient) return;
 
-  isPlaying = true;
+  isPlaybackEnabled = true;
   shouldStop = false;
   updateAudioButtons();
 
-  while (backlog.length > 0 && !shouldStop) {
-    const item = backlog[0];
-    if (!item) break; // Prevent race condition if backlog[0] is undefined
-    await playCallsign(item);
+  // Continuous playback loop - keeps running even when backlog is empty
+  while (!shouldStop) {
+    if (backlog.length > 0) {
+      const item = backlog[0];
+      if (item) {
+        isPlaying = true;
+        await playCallsign(item);
+        isPlaying = false;
 
-    // Delay between items
-    if (backlog.length > 0 && !shouldStop) {
-      await sleep(config.delayBetweenItems);
+        // Delay between items if there are more items to play
+        if (backlog.length > 0 && !shouldStop) {
+          await sleep(config.delayBetweenItems);
+        }
+      }
+    } else {
+      // Backlog is empty, wait a bit before checking again
+      await sleep(100);
     }
   }
 
+  isPlaybackEnabled = false;
   isPlaying = false;
-  shouldStop = false;
   updateAudioButtons();
+}
+
+// Stop continuous playback
+function stopPlayback() {
+  shouldStop = true;
+  isPlaybackEnabled = false;
 }
 
 // Sleep utility
@@ -486,11 +511,17 @@ function setupEventListeners() {
 
   // Playback controls
   playAllBtn.addEventListener('click', () => {
-    playAll();
+    if (isPlaybackEnabled) {
+      // Stop continuous playback
+      stopPlayback();
+    } else {
+      // Start continuous playback
+      playAll();
+    }
   });
 
   stopBtn.addEventListener('click', () => {
-    shouldStop = true;
+    stopPlayback();
   });
 
   clearBacklogBtn.addEventListener('click', async () => {
