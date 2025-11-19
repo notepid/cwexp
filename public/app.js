@@ -571,9 +571,10 @@ function drawColumnOnCanvas(ctx, canvas, bins) {
     return;
   }
 
-  // Scroll existing image one pixel to the left
-  const imageData = ctx.getImageData(1, 0, width - 1, height);
-  ctx.putImageData(imageData, 0, 0);
+  // Scroll existing image one pixel to the left using drawImage (GPU-accelerated)
+  ctx.drawImage(canvas, 1, 0, width - 1, height, 0, 0, width - 1, height);
+  // Clear the rightmost column
+  ctx.clearRect(width - 1, 0, 1, height);
 
   // New column on the right
   const column = ctx.createImageData(1, height);
