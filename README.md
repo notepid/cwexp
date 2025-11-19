@@ -13,6 +13,7 @@ Multiple operators can connect to the same server, add callsigns to a shared bac
 - **Shared state**: All connected browsers see the same backlog, configuration, and connection count.
 - **Single audio output client**: Exactly one browser at a time is allowed to output audio (claim/release audio with confirmation).
 - **Configurable CW playback**: Adjust WPM, delay between backlog items, and dit/dah frequencies from the web UI.
+- **Waterfall visualization**: Real-time audio spectrum waterfall display (0-4 kHz) using the browser microphone, broadcast to all connected clients.
 - **Standard browser audio**: Uses the Web Audio API in the browser; no plugins required.
 
 ---
@@ -39,6 +40,16 @@ Multiple operators can connect to the same server, add callsigns to a shared bac
   - **Dit tone frequency** – frequency (Hz) for dots.
   - **Dah tone frequency** – frequency (Hz) for dashes.
 
+- **Waterfall visualization**
+  - Real-time sideways waterfall display showing incoming audio spectrum (0-4 kHz).
+  - Uses the browser microphone API (requires permission).
+  - Only the audio output client can start the waterfall and capture microphone input.
+  - Waterfall frames are automatically broadcast to all connected clients via WebSocket.
+  - Available in two views:
+    - **Embedded panel**: Compact waterfall display in the main manager view.
+    - **Full waterfall view**: Dedicated tab with a larger waterfall display.
+  - Frequency axis is vertical (0 Hz at bottom, 4 kHz at top); time scrolls left to right.
+
 ---
 
 ## Architecture
@@ -50,12 +61,15 @@ Multiple operators can connect to the same server, add callsigns to a shared bac
     - Backlog contents.
     - Who is the audio client.
     - Current CW configuration.
+    - Waterfall frame data (broadcast from audio client to all others).
 
 - **Frontend**
   - Plain HTML/CSS/JS in `public/`.
   - Connects to the server via WebSocket and:
     - Sends user actions (add/remove/clear backlog, config changes, claim/release audio).
-    - Plays CW tones using the browser’s Web Audio API when designated as the audio client.
+    - Plays CW tones using the browser's Web Audio API when designated as the audio client.
+    - Captures microphone input and performs FFT analysis for waterfall display (audio client only).
+    - Receives and renders waterfall frames broadcast from the audio client (all clients).
 
 ---
 
@@ -186,6 +200,25 @@ Whenever you change these values:
   - Waits the configured delay before moving to the next item.
 - You can click **Stop** to stop continuous playback while keeping your audio role.
 
+### 6. Using the waterfall
+
+- **Starting the waterfall** (audio client only):
+  - First, claim audio output (see step 3 above).
+  - Navigate to the **Waterfall** tab or view the embedded waterfall panel in the main view.
+  - Click **Start Waterfall**.
+  - Grant microphone permission when prompted by your browser.
+  - The waterfall will begin displaying in real-time, showing incoming audio frequencies from 0-4 kHz.
+
+- **Viewing the waterfall** (all clients):
+  - **Embedded panel**: A compact waterfall display appears in the main manager view below the "Now Playing" section.
+  - **Full waterfall view**: Click the **Waterfall** tab in the navigation to see a larger, dedicated waterfall display.
+  - Non-audio clients automatically receive and display waterfall frames broadcast from the audio client.
+  - The waterfall shows frequency on the vertical axis (0 Hz at bottom, 4 kHz at top) and time scrolling left to right.
+
+- **Stopping the waterfall**:
+  - Click **Stop Waterfall** on the audio client.
+  - This releases the microphone and stops broadcasting frames to other clients.
+
 ---
 
 ## Environment & Configuration
@@ -201,8 +234,10 @@ No authentication is built in; anyone who can reach the server can connect as a 
 ## Development Notes
 
 - **Main server file**: `server.js`
-  - WebSocket message types include `addCallsign`, `removeCallsign`, `clearBacklog`, `reorderBacklog`, `claimAudio`, `releaseAudio`, `updateConfig`, `playNext`, and `callsignPlayed`.
+  - WebSocket message types include `addCallsign`, `removeCallsign`, `clearBacklog`, `reorderBacklog`, `claimAudio`, `releaseAudio`, `updateConfig`, `playNext`, `callsignPlayed`, and `waterfallFrame`.
 - **Frontend logic**: `public/app.js`
   - Handles UI, WebSocket communication, and CW tone generation using the Web Audio API.
+  - Implements waterfall visualization using `AnalyserNode` for FFT analysis (2048-point FFT, limited to 0-4 kHz display).
+  - Broadcasts downsampled waterfall frames (~20 FPS) from the audio client to all connected clients.
 
 Feel free to fork and adapt this for your own contest or training workflows (e.g. adding authentication, persistence, or more advanced backlog management).

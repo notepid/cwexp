@@ -1,84 +1,139 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CW Pileup Manager</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <div class="container">
         <header>
             <h1>CW Pileup Manager</h1>
             <div class="status-bar" role="status" aria-label="System status indicators">
                 <span class="status-label" id="connectionStatusLabel" hidden>Connection Status:</span>
-                <span id="connectionStatus" class="status disconnected" aria-labelledby="connectionStatusLabel" aria-label="Connection status">Disconnected</span>
+                <span id="connectionStatus" class="status disconnected" aria-labelledby="connectionStatusLabel"
+                    aria-label="Connection status">Disconnected</span>
                 <span class="status-label" id="clientCountLabel" hidden>Client Count:</span>
-                <span id="clientCount" aria-labelledby="clientCountLabel" aria-label="Number of connected clients">Clients: 0</span>
+                <span id="clientCount" aria-labelledby="clientCountLabel"
+                    aria-label="Number of connected clients">Clients: 0</span>
                 <span class="status-label" id="audioStatusLabel" hidden>Audio Status:</span>
-                <span id="audioStatus" class="audio-status" aria-labelledby="audioStatusLabel" aria-label="Audio client status">Audio: None</span>
+                <span id="audioStatus" class="audio-status" aria-labelledby="audioStatusLabel"
+                    aria-label="Audio client status">Audio: None</span>
+            </div>
+
+            <div class="view-tabs" role="tablist" aria-label="View selection">
+                <button id="managerViewTab" class="view-tab active" role="tab" aria-selected="true"
+                    aria-controls="managerView">
+                    Manager
+                </button>
+                <button id="waterfallViewTab" class="view-tab" role="tab" aria-selected="false"
+                    aria-controls="waterfallView">
+                    Waterfall
+                </button>
             </div>
         </header>
 
         <main>
-            <section class="config-panel">
-                <h2>Configuration</h2>
-                <div class="config-grid">
-                    <div class="config-item">
-                        <label for="wpm">WPM (Words Per Minute)</label>
-                        <input type="number" id="wpm" min="5" max="50" value="20">
+            <div id="managerView" class="view-panel active" role="tabpanel" aria-labelledby="managerViewTab">
+                <section class="waterfall-embed" id="embeddedWaterfallSection" aria-hidden="true">
+                    <h2>Waterfall (Live)</h2>
+                    <div class="waterfall-embed-inner">
+                        <canvas id="embeddedWaterfallCanvas" role="img" aria-label="Audio spectrum waterfall display showing frequencies from 0 to 4 kilohertz"></canvas>
                     </div>
-                    <div class="config-item">
-                        <label for="delayBetweenItems">Delay Between Items (ms)</label>
-                        <input type="number" id="delayBetweenItems" min="0" max="10000" value="1000">
-                    </div>
-                    <div class="config-item">
-                        <label for="ditFrequency">Dit Frequency (Hz)</label>
-                        <input type="number" id="ditFrequency" min="200" max="1500" value="600">
-                    </div>
-                    <div class="config-item">
-                        <label for="dahFrequency">Dah Frequency (Hz)</label>
-                        <input type="number" id="dahFrequency" min="200" max="1500" value="600">
-                    </div>
-                </div>
-            </section>
+                    <p class="waterfall-note">
+                        Microphone-based CW waterfall. Broadcast from the audio client to all connected clients.
+                    </p>
+                </section>
 
-            <section class="audio-control">
-                <h2>Audio Output Control</h2>
-                <div class="audio-buttons">
-                    <button id="claimAudioBtn" class="btn btn-primary">Claim Audio Output</button>
-                    <button id="releaseAudioBtn" class="btn btn-secondary" disabled>Release Audio Output</button>
-                </div>
-                <p id="audioInfo" class="audio-info">No client is currently outputting audio</p>
-            </section>
+                <section class="input-section">
+                    <h2>Add Callsign</h2>
+                    <form id="callsignForm">
+                        <input type="text" id="callsignInput" placeholder="Enter callsign (e.g., W1AW)"
+                            pattern="[A-Za-z0-9/]+" maxlength="20" autocomplete="off">
+                        <button type="submit" class="btn btn-primary">Add to Backlog</button>
+                    </form>
+                </section>
 
-            <section class="input-section">
-                <h2>Add Callsign</h2>
-                <form id="callsignForm">
-                    <input type="text" id="callsignInput" placeholder="Enter callsign (e.g., W1AW)"
-                           pattern="[A-Za-z0-9/]+" maxlength="20" autocomplete="off">
-                    <button type="submit" class="btn btn-primary">Add to Backlog</button>
-                </form>
-            </section>
-
-            <section class="backlog-section">
-                <div class="backlog-header">
-                    <h2>Backlog (<span id="backlogCount">0</span>)</h2>
-                    <div class="backlog-actions">
-                        <button id="playAllBtn" class="btn btn-success" disabled>Play All</button>
-                        <button id="stopBtn" class="btn btn-warning" disabled>Stop</button>
-                        <button id="clearBacklogBtn" class="btn btn-danger">Clear All</button>
+                <section class="backlog-section">
+                    <div class="backlog-header">
+                        <h2>Backlog (<span id="backlogCount">0</span>)</h2>
+                        <div class="backlog-actions">
+                            <button id="playAllBtn" class="btn btn-success" disabled>Play All</button>
+                            <button id="stopBtn" class="btn btn-warning" disabled>Stop</button>
+                            <button id="clearBacklogBtn" class="btn btn-danger">Clear All</button>
+                        </div>
                     </div>
-                </div>
-                <div id="backlogList" class="backlog-list">
-                    <p class="empty-message">No callsigns in backlog</p>
-                </div>
-            </section>
+                    <div id="backlogList" class="backlog-list">
+                        <p class="empty-message">No callsigns in backlog</p>
+                    </div>
+                </section>
 
-            <section class="now-playing" id="nowPlayingSection" style="display: none;" aria-live="polite" role="status">
-                <h2>Now Playing</h2>
-                <div id="nowPlayingCallsign" class="now-playing-callsign"></div>
-                <div id="nowPlayingMorse" class="now-playing-morse"></div>
+                <section class="now-playing" id="nowPlayingSection" style="display: none;" aria-live="polite"
+                    role="status">
+                    <h2>Now Playing</h2>
+                    <div id="nowPlayingCallsign" class="now-playing-callsign"></div>
+                    <div id="nowPlayingMorse" class="now-playing-morse"></div>
+                </section>
+
+
+                <section class="config-panel">
+                    <h2>Configuration</h2>
+                    <div class="config-grid">
+                        <div class="config-item">
+                            <label for="wpm">WPM (Words Per Minute)</label>
+                            <input type="number" id="wpm" min="5" max="50" value="20">
+                        </div>
+                        <div class="config-item">
+                            <label for="delayBetweenItems">Delay Between Items (ms)</label>
+                            <input type="number" id="delayBetweenItems" min="0" max="10000" value="1000">
+                        </div>
+                        <div class="config-item">
+                            <label for="ditFrequency">Dit Frequency (Hz)</label>
+                            <input type="number" id="ditFrequency" min="200" max="1500" value="600">
+                        </div>
+                        <div class="config-item">
+                            <label for="dahFrequency">Dah Frequency (Hz)</label>
+                            <input type="number" id="dahFrequency" min="200" max="1500" value="600">
+                        </div>
+                    </div>
+                </section>
+
+                <section class="audio-control">
+                    <h2>Audio Output Control</h2>
+                    <div class="audio-buttons">
+                        <button id="claimAudioBtn" class="btn btn-primary">Claim Audio Output</button>
+                        <button id="releaseAudioBtn" class="btn btn-secondary" disabled>Release Audio Output</button>
+                    </div>
+                    <div class="audio-buttons" style="margin-top: 10px;">
+                        <button id="startWaterfallBtnEmbedded" class="btn btn-primary" disabled>Start Waterfall</button>
+                        <button id="stopWaterfallBtnEmbedded" class="btn btn-secondary" disabled>Stop Waterfall</button>
+                    </div>
+                    <p id="audioInfo" class="audio-info">No client is currently outputting audio</p>
+                </section>
+
+
+            </div>
+
+            <section id="waterfallView" class="view-panel waterfall-view" role="tabpanel"
+                aria-labelledby="waterfallViewTab" hidden>
+                <h2>Waterfall View</h2>
+                <p class="waterfall-description">
+                    Sideways waterfall of incoming audio using the audio client's microphone. Broadcast to all connected
+                    clients.
+                </p>
+                <div class="waterfall-controls">
+                    <button id="startWaterfallBtn" class="btn btn-primary" disabled>Start Waterfall</button>
+                    <button id="stopWaterfallBtn" class="btn btn-secondary" disabled>Stop Waterfall</button>
+                    <span id="waterfallStatus" class="waterfall-status" aria-live="polite">
+                        Waterfall stopped.
+                    </span>
+                </div>
+                <div class="waterfall-canvas-wrapper">
+                    <canvas id="waterfallCanvas" role="img" aria-label="Audio spectrum waterfall display showing frequencies from 0 to 4 kilohertz"></canvas>
+                </div>
             </section>
         </main>
 
@@ -92,4 +147,5 @@
 
     <script src="app.js"></script>
 </body>
+
 </html>

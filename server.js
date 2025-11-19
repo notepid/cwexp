@@ -60,7 +60,12 @@ function getStateForClient(clientId) {
 
 wss.on('connection', (ws) => {
   const clientId = ++clientIdCounter;
-  clients.set(clientId, { ws, id: clientId });
+  clients.set(clientId, { 
+    ws, 
+    id: clientId,
+    waterfallFrameCount: 0,
+    waterfallFrameResetTime: Date.now()
+  });
 
   console.log(`Client ${clientId} connected. Total clients: ${clients.size}`);
 
@@ -145,20 +150,20 @@ function handleMessage(clientId, message) {
       if (Array.isArray(message.order)) {
         const newBacklog = [];
         const orderSet = new Set(message.order);
-        
+
         // Add items in the new order
         message.order.forEach(id => {
           const item = state.backlog.find(i => i.id === id);
           if (item) newBacklog.push(item);
         });
-        
+
         // Preserve items not in the order array by appending them at the end
         state.backlog.forEach(item => {
           if (!orderSet.has(item.id)) {
             newBacklog.push(item);
           }
         });
-        
+
         state.backlog = newBacklog;
         broadcast({
           type: 'backlogUpdated',
@@ -211,23 +216,23 @@ function handleMessage(clientId, message) {
       if (message.config) {
         // Validate config values
         const newConfig = {};
-        
+
         if (typeof message.config.wpm === 'number' && message.config.wpm >= 5 && message.config.wpm <= 50) {
           newConfig.wpm = message.config.wpm;
         }
-        
+
         if (typeof message.config.delayBetweenItems === 'number' && message.config.delayBetweenItems >= 0 && message.config.delayBetweenItems <= 10000) {
           newConfig.delayBetweenItems = message.config.delayBetweenItems;
         }
-        
+
         if (typeof message.config.ditFrequency === 'number' && message.config.ditFrequency >= 200 && message.config.ditFrequency <= 1500) {
           newConfig.ditFrequency = message.config.ditFrequency;
         }
-        
+
         if (typeof message.config.dahFrequency === 'number' && message.config.dahFrequency >= 200 && message.config.dahFrequency <= 1500) {
           newConfig.dahFrequency = message.config.dahFrequency;
         }
-        
+
         // Only update and broadcast if there are valid changes
         if (Object.keys(newConfig).length > 0) {
           Object.assign(state.config, newConfig);
@@ -260,6 +265,62 @@ function handleMessage(clientId, message) {
       } else {
         console.warn(`Invalid id for callsignPlayed: ${message.id}`);
       }
+      break;
+
+    case 'waterfallFrame':
+      // Forward downsampled waterfall frames from the audio client to all clients
+      // with validation and rate limiting
+      
+      // Validate bins is an array
+      if (!Array.isArray(message.bins)) {
+        console.warn(`Invalid waterfall frame from client ${clientId}: bins not an array`);
+        break;
+      }
+      
+      // Validate client is the audio client
+      if (state.audioClientId !== clientId) {
+        console.warn(`Ignoring waterfall frame from non-audio client ${clientId} (audio client is ${state.audioClientId})`);
+        break;
+      }
+      
+      // Validate array length and contents
+      if (message.bins.length === 0 || message.bins.length > 2048) {
+        console.warn(`Invalid waterfall frame from client ${clientId}: invalid array length ${message.bins.length}`);
+        break;
+      }
+      
+      // Validate array elements are numbers in expected range (0-255 for Uint8Array values)
+      const validBins = message.bins.every(bin => 
+        typeof bin === 'number' && bin >= 0 && bin <= 255 && Number.isInteger(bin)
+      );
+      if (!validBins) {
+        console.warn(`Invalid waterfall frame from client ${clientId}: bins contain invalid values`);
+        break;
+      }
+      
+      // Rate limiting: max 30 frames per second
+      const client = clients.get(clientId);
+      const now = Date.now();
+      const timeSinceReset = now - client.waterfallFrameResetTime;
+      
+      if (timeSinceReset >= 1000) {
+        // Reset counter every second
+        client.waterfallFrameCount = 0;
+        client.waterfallFrameResetTime = now;
+      }
+      
+      if (client.waterfallFrameCount >= 30) {
+        // Silently drop frames over the limit
+        break;
+      }
+      
+      client.waterfallFrameCount++;
+      
+      //console.log(`Broadcasting waterfall frame from client ${clientId} with ${message.bins.length} bins to ${clients.size} clients`);
+      broadcast({
+        type: 'waterfallFrame',
+        bins: message.bins
+      });
       break;
 
     default:
