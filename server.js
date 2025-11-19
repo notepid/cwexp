@@ -25,6 +25,7 @@ const state = {
 // Client tracking
 const clients = new Map();
 let clientIdCounter = 0;
+let backlogIdCounter = 0;
 
 // Broadcast state to all clients
 function broadcast(message) {
@@ -108,7 +109,7 @@ function handleMessage(clientId, message) {
       if (message.callsign && message.callsign.trim()) {
         const callsign = message.callsign.trim().toUpperCase();
         state.backlog.push({
-          id: Date.now() + Math.random(),
+          id: ++backlogIdCounter,
           callsign: callsign,
           addedBy: clientId,
           addedAt: new Date().toISOString()
@@ -121,11 +122,15 @@ function handleMessage(clientId, message) {
       break;
 
     case 'removeCallsign':
-      state.backlog = state.backlog.filter(item => item.id !== message.id);
-      broadcast({
-        type: 'backlogUpdated',
-        backlog: state.backlog
-      });
+      if (typeof message.id === 'number' && Number.isFinite(message.id)) {
+        state.backlog = state.backlog.filter(item => item.id !== message.id);
+        broadcast({
+          type: 'backlogUpdated',
+          backlog: state.backlog
+        });
+      } else {
+        console.warn(`Invalid id for removeCallsign: ${message.id}`);
+      }
       break;
 
     case 'clearBacklog':
@@ -139,10 +144,21 @@ function handleMessage(clientId, message) {
     case 'reorderBacklog':
       if (Array.isArray(message.order)) {
         const newBacklog = [];
+        const orderSet = new Set(message.order);
+        
+        // Add items in the new order
         message.order.forEach(id => {
           const item = state.backlog.find(i => i.id === id);
           if (item) newBacklog.push(item);
         });
+        
+        // Preserve items not in the order array by appending them at the end
+        state.backlog.forEach(item => {
+          if (!orderSet.has(item.id)) {
+            newBacklog.push(item);
+          }
+        });
+        
         state.backlog = newBacklog;
         broadcast({
           type: 'backlogUpdated',
@@ -193,11 +209,33 @@ function handleMessage(clientId, message) {
 
     case 'updateConfig':
       if (message.config) {
-        Object.assign(state.config, message.config);
-        broadcast({
-          type: 'configUpdated',
-          config: state.config
-        });
+        // Validate config values
+        const newConfig = {};
+        
+        if (typeof message.config.wpm === 'number' && message.config.wpm >= 5 && message.config.wpm <= 50) {
+          newConfig.wpm = message.config.wpm;
+        }
+        
+        if (typeof message.config.delayBetweenItems === 'number' && message.config.delayBetweenItems >= 0 && message.config.delayBetweenItems <= 10000) {
+          newConfig.delayBetweenItems = message.config.delayBetweenItems;
+        }
+        
+        if (typeof message.config.ditFrequency === 'number' && message.config.ditFrequency >= 200 && message.config.ditFrequency <= 1500) {
+          newConfig.ditFrequency = message.config.ditFrequency;
+        }
+        
+        if (typeof message.config.dahFrequency === 'number' && message.config.dahFrequency >= 200 && message.config.dahFrequency <= 1500) {
+          newConfig.dahFrequency = message.config.dahFrequency;
+        }
+        
+        // Only update and broadcast if there are valid changes
+        if (Object.keys(newConfig).length > 0) {
+          Object.assign(state.config, newConfig);
+          broadcast({
+            type: 'configUpdated',
+            config: state.config
+          });
+        }
       }
       break;
 
@@ -213,12 +251,14 @@ function handleMessage(clientId, message) {
 
     case 'callsignPlayed':
       // Remove the played callsign from backlog
-      if (message.id) {
+      if (typeof message.id === 'number' && Number.isFinite(message.id)) {
         state.backlog = state.backlog.filter(item => item.id !== message.id);
         broadcast({
           type: 'backlogUpdated',
           backlog: state.backlog
         });
+      } else {
+        console.warn(`Invalid id for callsignPlayed: ${message.id}`);
       }
       break;
 

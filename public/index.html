@@ -10,10 +10,13 @@
     <div class="container">
         <header>
             <h1>CW Pileup Manager</h1>
-            <div class="status-bar">
-                <span id="connectionStatus" class="status disconnected">Disconnected</span>
-                <span id="clientCount">Clients: 0</span>
-                <span id="audioStatus" class="audio-status">Audio: None</span>
+            <div class="status-bar" role="status" aria-label="System status indicators">
+                <span class="status-label" id="connectionStatusLabel" hidden>Connection Status:</span>
+                <span id="connectionStatus" class="status disconnected" aria-labelledby="connectionStatusLabel" aria-label="Connection status">Disconnected</span>
+                <span class="status-label" id="clientCountLabel" hidden>Client Count:</span>
+                <span id="clientCount" aria-labelledby="clientCountLabel" aria-label="Number of connected clients">Clients: 0</span>
+                <span class="status-label" id="audioStatusLabel" hidden>Audio Status:</span>
+                <span id="audioStatus" class="audio-status" aria-labelledby="audioStatusLabel" aria-label="Audio client status">Audio: None</span>
             </div>
         </header>
 
@@ -72,7 +75,7 @@
                 </div>
             </section>
 
-            <section class="now-playing" id="nowPlayingSection" style="display: none;">
+            <section class="now-playing" id="nowPlayingSection" style="display: none;" aria-live="polite" role="status">
                 <h2>Now Playing</h2>
                 <div id="nowPlayingCallsign" class="now-playing-callsign"></div>
                 <div id="nowPlayingMorse" class="now-playing-morse"></div>
@@ -83,6 +86,9 @@
             <p>CW Pileup Manager - Real-time Morse Code Training</p>
         </footer>
     </div>
+
+    <!-- Notification Container -->
+    <div id="notificationContainer" class="notification-container" aria-live="polite" aria-atomic="true"></div>
 
     <script src="app.js"></script>
 </body>
