@@ -5,6 +5,8 @@ Simple, browser-based web app for managing a CW (Morse code) pileup during conte
 
 Multiple operators can connect to the same server, add callsigns to a shared backlog, and **one designated client** plays the CW audio for each callsign in order using the browser’s audio APIs.
 
+![Screenshot](./images/screenshot1.png)
+
 ---
 
 ## Overview
