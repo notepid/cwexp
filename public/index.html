@@ -38,10 +38,10 @@
 
         <main>
             <div id="managerView" class="view-panel active" role="tabpanel" aria-labelledby="managerViewTab">
-                <section class="waterfall-embed" id="embeddedWaterfallSection" aria-hidden="false">
+                <section class="waterfall-embed" id="embeddedWaterfallSection" aria-hidden="true">
                     <h2>Waterfall (Live)</h2>
                     <div class="waterfall-embed-inner">
-                        <canvas id="embeddedWaterfallCanvas"></canvas>
+                        <canvas id="embeddedWaterfallCanvas" role="img" aria-label="Audio spectrum waterfall display showing frequencies from 0 to 4 kilohertz"></canvas>
                     </div>
                     <p class="waterfall-note">
                         Microphone-based CW waterfall. Broadcast from the audio client to all connected clients.
@@ -132,7 +132,7 @@
                     </span>
                 </div>
                 <div class="waterfall-canvas-wrapper">
-                    <canvas id="waterfallCanvas"></canvas>
+                    <canvas id="waterfallCanvas" role="img" aria-label="Audio spectrum waterfall display showing frequencies from 0 to 4 kilohertz"></canvas>
                 </div>
             </section>
         </main>
