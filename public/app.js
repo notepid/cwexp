@@ -123,6 +123,20 @@ let config = {
   dahFrequency: 600
 };
 
+// Waterfall state
+let micStream = null;
+let waterfallAnalyser = null;
+let waterfallDataArray = null;
+let waterfallAnimationId = null;
+let waterfallRunning = false;
+let waterfallCanvas = null;
+let waterfallCanvasCtx = null;
+let embeddedWaterfallCanvas = null;
+let embeddedWaterfallCtx = null;
+let lastWaterfallSendTime = 0;
+const WATERFALL_SEND_INTERVAL = 100; // ms, ~10 FPS
+const WATERFALL_DOWNSAMPLED_BINS = 128;
+
 // DOM elements
 const connectionStatus = document.getElementById('connectionStatus');
 const clientCount = document.getElementById('clientCount');
@@ -145,6 +159,18 @@ const nowPlayingSection = document.getElementById('nowPlayingSection');
 const nowPlayingCallsign = document.getElementById('nowPlayingCallsign');
 const nowPlayingMorse = document.getElementById('nowPlayingMorse');
 const notificationContainer = document.getElementById('notificationContainer');
+const managerViewTab = document.getElementById('managerViewTab');
+const waterfallViewTab = document.getElementById('waterfallViewTab');
+const managerView = document.getElementById('managerView');
+const waterfallView = document.getElementById('waterfallView');
+const embeddedWaterfallSection = document.getElementById('embeddedWaterfallSection');
+const startWaterfallBtn = document.getElementById('startWaterfallBtn');
+const stopWaterfallBtn = document.getElementById('stopWaterfallBtn');
+const waterfallStatus = document.getElementById('waterfallStatus');
+
+// Canvas references (assigned during init)
+waterfallCanvas = document.getElementById('waterfallCanvas');
+embeddedWaterfallCanvas = document.getElementById('embeddedWaterfallCanvas');
 
 // Initialize WebSocket connection
 function connect() {
@@ -222,6 +248,13 @@ function handleServerMessage(message) {
         playCallsign(message.item);
       }
       break;
+
+    case 'waterfallFrame':
+      // Non-audio clients render waterfall frames received from the audio client
+      if (!isAudioClient && Array.isArray(message.bins)) {
+        drawRemoteWaterfall(message.bins);
+      }
+      break;
   }
 }
 
@@ -270,6 +303,7 @@ function updateAudioUI(audioClientId) {
     audioInfo.textContent = `Client ${audioClientId} is the audio output`;
   }
   updateAudioButtons();
+  updateWaterfallControls();
 }
 
 // Update audio control buttons
@@ -289,6 +323,37 @@ function updateAudioButtons() {
   }
 }
 
+// Update waterfall controls based on audio client state and running status
+function updateWaterfallControls() {
+  if (!startWaterfallBtn || !stopWaterfallBtn || !waterfallStatus) return;
+
+  if (!isAudioClient) {
+    startWaterfallBtn.disabled = true;
+    stopWaterfallBtn.disabled = true;
+    waterfallStatus.textContent = 'Only the audio output client can start the waterfall.';
+    if (embeddedWaterfallSection) {
+      embeddedWaterfallSection.setAttribute('aria-hidden', 'true');
+      embeddedWaterfallSection.style.opacity = '0.4';
+    }
+  } else {
+    startWaterfallBtn.disabled = waterfallRunning;
+    stopWaterfallBtn.disabled = !waterfallRunning;
+
+    if (embeddedWaterfallSection) {
+      embeddedWaterfallSection.setAttribute('aria-hidden', 'false');
+      embeddedWaterfallSection.style.opacity = '1';
+    }
+
+    if (waterfallRunning) {
+      waterfallStatus.textContent = 'Waterfall running.';
+    } else if (!micStream) {
+      waterfallStatus.textContent = 'Waterfall ready. Click \"Start Waterfall\" to begin.';
+    } else {
+      waterfallStatus.textContent = 'Microphone ready. Start the waterfall to view activity.';
+    }
+  }
+}
+
 // Convert callsign to Morse code string
 function callsignToMorse(callsign) {
   return callsign.split('').map(char => MORSE_CODE[char] || '').join(' ');
@@ -302,6 +367,232 @@ function initAudioContext() {
   if (audioContext.state === 'suspended') {
     audioContext.resume();
   }
+}
+
+// Initialize or resize waterfall canvases
+function setupWaterfallCanvases() {
+  if (waterfallCanvas) {
+    resizeCanvas(waterfallCanvas);
+    if (!waterfallCanvasCtx) {
+      waterfallCanvasCtx = waterfallCanvas.getContext('2d');
+    }
+    clearCanvas(waterfallCanvasCtx, waterfallCanvas);
+  }
+
+  if (embeddedWaterfallCanvas) {
+    resizeCanvas(embeddedWaterfallCanvas);
+    if (!embeddedWaterfallCtx) {
+      embeddedWaterfallCtx = embeddedWaterfallCanvas.getContext('2d');
+    }
+    clearCanvas(embeddedWaterfallCtx, embeddedWaterfallCanvas);
+  }
+}
+
+function resizeCanvas(canvas) {
+  if (!canvas) return;
+  const width = canvas.clientWidth || 600;
+  const height = canvas.clientHeight || 200;
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+}
+
+function clearCanvas(ctx, canvas) {
+  if (!ctx || !canvas) return;
+  ctx.fillStyle = '#000814';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// Microphone + analyser setup for waterfall
+async function initWaterfallAudio() {
+  if (micStream && waterfallAnalyser && waterfallDataArray) {
+    return;
+  }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    waterfallStatus.textContent = 'Microphone API not supported in this browser.';
+    showNotification('Microphone API not supported in this browser', 'error');
+    return;
+  }
+
+  initAudioContext();
+
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    });
+
+    const source = audioContext.createMediaStreamSource(micStream);
+    waterfallAnalyser = audioContext.createAnalyser();
+    waterfallAnalyser.fftSize = 2048;
+    waterfallAnalyser.smoothingTimeConstant = 0.8;
+    waterfallAnalyser.minDecibels = -100;
+    waterfallAnalyser.maxDecibels = -30;
+
+    source.connect(waterfallAnalyser);
+
+    waterfallDataArray = new Uint8Array(waterfallAnalyser.frequencyBinCount);
+    waterfallStatus.textContent = 'Microphone ready. Start the waterfall to view activity.';
+  } catch (err) {
+    console.error('Error accessing microphone for waterfall:', err);
+    waterfallStatus.textContent = 'Unable to access microphone. Check permissions and input device.';
+    showNotification('Unable to access microphone for waterfall', 'error');
+  }
+}
+
+// Start the local waterfall (audio client only)
+async function startWaterfall() {
+  if (!isAudioClient) {
+    showNotification('Only the audio output client can start the waterfall', 'error');
+    return;
+  }
+
+  if (waterfallRunning) return;
+
+  waterfallStatus.textContent = 'Starting waterfall...';
+
+  await initWaterfallAudio();
+
+  if (!waterfallAnalyser || !waterfallDataArray) {
+    return;
+  }
+
+  setupWaterfallCanvases();
+  waterfallRunning = true;
+  updateWaterfallControls();
+
+  const loop = () => {
+    if (!waterfallRunning || !waterfallAnalyser || !waterfallDataArray) {
+      return;
+    }
+
+    waterfallAnalyser.getByteFrequencyData(waterfallDataArray);
+    drawWaterfallColumn(waterfallDataArray);
+    maybeSendWaterfallFrame(waterfallDataArray);
+
+    waterfallAnimationId = requestAnimationFrame(loop);
+  };
+
+  loop();
+}
+
+// Stop the local waterfall and release microphone
+function stopWaterfall() {
+  if (!waterfallRunning && !micStream) return;
+
+  waterfallRunning = false;
+
+  if (waterfallAnimationId !== null) {
+    cancelAnimationFrame(waterfallAnimationId);
+    waterfallAnimationId = null;
+  }
+
+  if (micStream) {
+    micStream.getTracks().forEach(track => track.stop());
+    micStream = null;
+  }
+
+  waterfallAnalyser = null;
+  waterfallDataArray = null;
+
+  waterfallStatus.textContent = 'Waterfall stopped.';
+  updateWaterfallControls();
+}
+
+// Map magnitude (0..1) to RGB color
+function magnitudeToColor(mag) {
+  const brightness = Math.pow(Math.max(0, Math.min(1, mag)), 1.4);
+  const r = 20 + Math.floor(80 * brightness);
+  const g = 80 + Math.floor(160 * brightness);
+  const b = 120 + Math.floor(135 * brightness);
+  return {
+    r: Math.max(0, Math.min(255, r)),
+    g: Math.max(0, Math.min(255, g)),
+    b: Math.max(0, Math.min(255, b))
+  };
+}
+
+// Draw a single vertical column to both canvases
+function drawWaterfallColumn(bins) {
+  if (!bins || bins.length === 0) return;
+  const data = bins instanceof Uint8Array ? bins : Uint8Array.from(bins);
+
+  if (waterfallCanvas && waterfallCanvasCtx) {
+    drawColumnOnCanvas(waterfallCanvasCtx, waterfallCanvas, data);
+  }
+
+  if (embeddedWaterfallCanvas && embeddedWaterfallCtx) {
+    drawColumnOnCanvas(embeddedWaterfallCtx, embeddedWaterfallCanvas, data);
+  }
+}
+
+function drawColumnOnCanvas(ctx, canvas, bins) {
+  if (!ctx || !canvas) return;
+  const width = canvas.width;
+  const height = canvas.height;
+  if (!width || !height) return;
+
+  // Scroll existing image one pixel to the left
+  const imageData = ctx.getImageData(1, 0, width - 1, height);
+  ctx.putImageData(imageData, 0, 0);
+
+  // New column on the right
+  const column = ctx.createImageData(1, height);
+
+  for (let y = 0; y < height; y++) {
+    const relY = 1 - y / height; // 0 at bottom, 1 at top
+    const binIndex = Math.min(
+      bins.length - 1,
+      Math.max(0, Math.floor(relY * bins.length))
+    );
+    const mag = bins[binIndex] / 255;
+    const color = magnitudeToColor(mag);
+    const idx = y * 4;
+    column.data[idx] = color.r;
+    column.data[idx + 1] = color.g;
+    column.data[idx + 2] = color.b;
+    column.data[idx + 3] = 255;
+  }
+
+  ctx.putImageData(column, width - 1, 0);
+}
+
+// Downsample FFT bins and send to server for remote waterfall display
+function maybeSendWaterfallFrame(bins) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const now = performance.now();
+  if (now - lastWaterfallSendTime < WATERFALL_SEND_INTERVAL) return;
+  lastWaterfallSendTime = now;
+
+  const src = bins;
+  const targetLength = WATERFALL_DOWNSAMPLED_BINS;
+  const result = new Uint8Array(targetLength);
+  const binSize = src.length / targetLength;
+
+  for (let i = 0; i < targetLength; i++) {
+    const start = Math.floor(i * binSize);
+    const end = Math.floor((i + 1) * binSize);
+    let max = 0;
+    for (let j = start; j < end && j < src.length; j++) {
+      if (src[j] > max) max = src[j];
+    }
+    result[i] = max;
+  }
+
+  send({ type: 'waterfallFrame', bins: Array.from(result) });
+}
+
+// Render waterfall from remote (server-sent) frames
+function drawRemoteWaterfall(bins) {
+  if (!Array.isArray(bins) || bins.length === 0) return;
+  setupWaterfallCanvases();
+  drawWaterfallColumn(bins);
 }
 
 // Play a tone
@@ -545,12 +836,64 @@ function setupEventListeners() {
   });
 
   setupConfigListeners();
+
+  // View tabs
+  if (managerViewTab && waterfallViewTab && managerView && waterfallView) {
+    managerViewTab.addEventListener('click', () => {
+      setActiveView('manager');
+    });
+
+    waterfallViewTab.addEventListener('click', () => {
+      setActiveView('waterfall');
+    });
+  }
+
+  // Waterfall controls
+  if (startWaterfallBtn) {
+    startWaterfallBtn.addEventListener('click', () => {
+      startWaterfall();
+    });
+  }
+
+  if (stopWaterfallBtn) {
+    stopWaterfallBtn.addEventListener('click', () => {
+      stopWaterfall();
+    });
+  }
+}
+
+function setActiveView(view) {
+  if (!managerViewTab || !waterfallViewTab || !managerView || !waterfallView) return;
+
+  const showManager = view === 'manager';
+
+  managerViewTab.classList.toggle('active', showManager);
+  waterfallViewTab.classList.toggle('active', !showManager);
+
+  managerView.classList.toggle('active', showManager);
+  waterfallView.classList.toggle('active', !showManager);
+
+  managerView.hidden = !showManager;
+  waterfallView.hidden = showManager;
 }
 
 // Initialize application
 function init() {
   setupEventListeners();
   connect();
+  setupWaterfallCanvases();
+  updateWaterfallControls();
+
+  window.addEventListener('resize', () => {
+    waterfallCanvasCtx = null;
+    embeddedWaterfallCtx = null;
+    setupWaterfallCanvases();
+  });
+
+  // Clean up on unload
+  window.addEventListener('unload', () => {
+    stopWaterfall();
+  });
 }
 
 // Start the application

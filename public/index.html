@@ -18,9 +18,19 @@
                 <span class="status-label" id="audioStatusLabel" hidden>Audio Status:</span>
                 <span id="audioStatus" class="audio-status" aria-labelledby="audioStatusLabel" aria-label="Audio client status">Audio: None</span>
             </div>
+
+            <div class="view-tabs" role="tablist" aria-label="View selection">
+                <button id="managerViewTab" class="view-tab active" role="tab" aria-selected="true" aria-controls="managerView">
+                    Manager
+                </button>
+                <button id="waterfallViewTab" class="view-tab" role="tab" aria-selected="false" aria-controls="waterfallView">
+                    Waterfall
+                </button>
+            </div>
         </header>
 
         <main>
+            <div id="managerView" class="view-panel active" role="tabpanel" aria-labelledby="managerViewTab">
             <section class="config-panel">
                 <h2>Configuration</h2>
                 <div class="config-grid">
@@ -79,6 +89,34 @@
                 <h2>Now Playing</h2>
                 <div id="nowPlayingCallsign" class="now-playing-callsign"></div>
                 <div id="nowPlayingMorse" class="now-playing-morse"></div>
+            </section>
+
+            <section class="waterfall-embed" id="embeddedWaterfallSection" aria-hidden="true">
+                <h2>Waterfall (Local preview)</h2>
+                <div class="waterfall-embed-inner">
+                    <canvas id="embeddedWaterfallCanvas"></canvas>
+                </div>
+                <p class="waterfall-note">
+                    Microphone-based CW waterfall. Only visible on the client providing audio.
+                </p>
+            </section>
+            </div>
+
+            <section id="waterfallView" class="view-panel waterfall-view" role="tabpanel" aria-labelledby="waterfallViewTab" hidden>
+                <h2>Waterfall View</h2>
+                <p class="waterfall-description">
+                    Sideways waterfall of incoming audio using your browser microphone. Only the audio client can start the waterfall.
+                </p>
+                <div class="waterfall-controls">
+                    <button id="startWaterfallBtn" class="btn btn-primary" disabled>Start Waterfall</button>
+                    <button id="stopWaterfallBtn" class="btn btn-secondary" disabled>Stop Waterfall</button>
+                    <span id="waterfallStatus" class="waterfall-status" aria-live="polite">
+                        Waterfall stopped.
+                    </span>
+                </div>
+                <div class="waterfall-canvas-wrapper">
+                    <canvas id="waterfallCanvas"></canvas>
+                </div>
             </section>
         </main>
 

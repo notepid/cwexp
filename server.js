@@ -145,20 +145,20 @@ function handleMessage(clientId, message) {
       if (Array.isArray(message.order)) {
         const newBacklog = [];
         const orderSet = new Set(message.order);
-        
+
         // Add items in the new order
         message.order.forEach(id => {
           const item = state.backlog.find(i => i.id === id);
           if (item) newBacklog.push(item);
         });
-        
+
         // Preserve items not in the order array by appending them at the end
         state.backlog.forEach(item => {
           if (!orderSet.has(item.id)) {
             newBacklog.push(item);
           }
         });
-        
+
         state.backlog = newBacklog;
         broadcast({
           type: 'backlogUpdated',
@@ -211,23 +211,23 @@ function handleMessage(clientId, message) {
       if (message.config) {
         // Validate config values
         const newConfig = {};
-        
+
         if (typeof message.config.wpm === 'number' && message.config.wpm >= 5 && message.config.wpm <= 50) {
           newConfig.wpm = message.config.wpm;
         }
-        
+
         if (typeof message.config.delayBetweenItems === 'number' && message.config.delayBetweenItems >= 0 && message.config.delayBetweenItems <= 10000) {
           newConfig.delayBetweenItems = message.config.delayBetweenItems;
         }
-        
+
         if (typeof message.config.ditFrequency === 'number' && message.config.ditFrequency >= 200 && message.config.ditFrequency <= 1500) {
           newConfig.ditFrequency = message.config.ditFrequency;
         }
-        
+
         if (typeof message.config.dahFrequency === 'number' && message.config.dahFrequency >= 200 && message.config.dahFrequency <= 1500) {
           newConfig.dahFrequency = message.config.dahFrequency;
         }
-        
+
         // Only update and broadcast if there are valid changes
         if (Object.keys(newConfig).length > 0) {
           Object.assign(state.config, newConfig);
@@ -259,6 +259,16 @@ function handleMessage(clientId, message) {
         });
       } else {
         console.warn(`Invalid id for callsignPlayed: ${message.id}`);
+      }
+      break;
+
+    case 'waterfallFrame':
+      // Forward downsampled waterfall frames from the audio client to all clients
+      if (Array.isArray(message.bins) && state.audioClientId === clientId) {
+        broadcast({
+          type: 'waterfallFrame',
+          bins: message.bins
+        });
       }
       break;
 
