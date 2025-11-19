@@ -134,7 +134,9 @@ let waterfallCanvasCtx = null;
 let embeddedWaterfallCanvas = null;
 let embeddedWaterfallCtx = null;
 let lastWaterfallSendTime = 0;
-const WATERFALL_SEND_INTERVAL = 100; // ms, ~10 FPS
+let lastWaterfallDrawTime = 0;
+const WATERFALL_FRAME_INTERVAL = 50; // ms, ~20 FPS
+const WATERFALL_SEND_INTERVAL = WATERFALL_FRAME_INTERVAL; // keep send rate in sync with draw rate
 const WATERFALL_DOWNSAMPLED_BINS = 128;
 
 // DOM elements
@@ -476,9 +478,13 @@ async function startWaterfall() {
       return;
     }
 
-    waterfallAnalyser.getByteFrequencyData(waterfallDataArray);
-    drawWaterfallColumn(waterfallDataArray);
-    maybeSendWaterfallFrame(waterfallDataArray);
+    const now = performance.now();
+    if (now - lastWaterfallDrawTime >= WATERFALL_FRAME_INTERVAL) {
+      lastWaterfallDrawTime = now;
+      waterfallAnalyser.getByteFrequencyData(waterfallDataArray);
+      drawWaterfallColumn(waterfallDataArray);
+      maybeSendWaterfallFrame(waterfallDataArray);
+    }
 
     waterfallAnimationId = requestAnimationFrame(loop);
   };
