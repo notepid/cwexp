@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  cw-pileup-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cw-pileup-manager
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+    restart: unless-stopped
+    networks:
+      - cw-network
+
+networks:
+  cw-network:
+    driver: bridge
