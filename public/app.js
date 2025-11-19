@@ -10,6 +10,103 @@ const MORSE_CODE = {
   '?': '..--..', '=': '-...-'
 };
 
+// Notification system
+function showNotification(message, type = 'info') {
+  const notification = document.createElement('div');
+  notification.className = `notification ${type}`;
+  notification.setAttribute('role', 'alert');
+  
+  const icon = document.createElement('span');
+  icon.className = 'notification-icon';
+  icon.textContent = type === 'error' ? '⚠️' : type === 'success' ? '✓' : 'ℹ️';
+  
+  const messageEl = document.createElement('span');
+  messageEl.className = 'notification-message';
+  messageEl.textContent = message;
+  
+  notification.appendChild(icon);
+  notification.appendChild(messageEl);
+  notificationContainer.appendChild(notification);
+  
+  // Remove after animation completes
+  setTimeout(() => {
+    notification.remove();
+  }, 3000);
+}
+
+// Modal dialog system
+function showModal(title, message, confirmText = 'OK', cancelText = 'Cancel') {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'modal-title');
+    
+    const dialog = document.createElement('div');
+    dialog.className = 'modal-dialog';
+    
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    header.id = 'modal-title';
+    header.textContent = title;
+    
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    body.textContent = message;
+    
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer';
+    
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-secondary';
+    cancelBtn.textContent = cancelText;
+    cancelBtn.onclick = () => {
+      overlay.remove();
+      resolve(false);
+    };
+    
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn btn-primary';
+    confirmBtn.textContent = confirmText;
+    confirmBtn.onclick = () => {
+      overlay.remove();
+      resolve(true);
+    };
+    
+    footer.appendChild(cancelBtn);
+    footer.appendChild(confirmBtn);
+    
+    dialog.appendChild(header);
+    dialog.appendChild(body);
+    dialog.appendChild(footer);
+    overlay.appendChild(dialog);
+    
+    document.body.appendChild(overlay);
+    
+    // Focus on confirm button
+    confirmBtn.focus();
+    
+    // Close on overlay click
+    overlay.onclick = (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+        resolve(false);
+      }
+    };
+    
+    // Close on Escape key
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        overlay.remove();
+        resolve(false);
+        document.removeEventListener('keydown', handleEscape);
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+  });
+}
+
 // Application state
 let ws = null;
 let audioContext = null;
@@ -46,6 +143,7 @@ const clearBacklogBtn = document.getElementById('clearBacklogBtn');
 const nowPlayingSection = document.getElementById('nowPlayingSection');
 const nowPlayingCallsign = document.getElementById('nowPlayingCallsign');
 const nowPlayingMorse = document.getElementById('nowPlayingMorse');
+const notificationContainer = document.getElementById('notificationContainer');
 
 // Initialize WebSocket connection
 function connect() {
@@ -110,7 +208,7 @@ function handleServerMessage(message) {
         isAudioClient = true;
         updateAudioButtons();
       } else {
-        alert(message.message || 'Failed to claim audio output');
+        showNotification(message.message || 'Failed to claim audio output', 'error');
       }
       break;
 
@@ -312,6 +410,7 @@ async function playAll() {
 
   while (backlog.length > 0 && !shouldStop) {
     const item = backlog[0];
+    if (!item) break; // Prevent race condition if backlog[0] is undefined
     await playCallsign(item);
 
     // Delay between items
@@ -368,8 +467,14 @@ function setupEventListeners() {
   });
 
   // Audio control buttons
-  claimAudioBtn.addEventListener('click', () => {
-    if (confirm('Do you want to become the audio output client? Only one client can output audio at a time.')) {
+  claimAudioBtn.addEventListener('click', async () => {
+    const confirmed = await showModal(
+      'Claim Audio Output',
+      'Do you want to become the audio output client? Only one client can output audio at a time.',
+      'Claim',
+      'Cancel'
+    );
+    if (confirmed) {
       initAudioContext(); // Initialize audio context on user interaction
       send({ type: 'claimAudio' });
     }
@@ -388,8 +493,14 @@ function setupEventListeners() {
     shouldStop = true;
   });
 
-  clearBacklogBtn.addEventListener('click', () => {
-    if (confirm('Are you sure you want to clear the entire backlog?')) {
+  clearBacklogBtn.addEventListener('click', async () => {
+    const confirmed = await showModal(
+      'Clear Backlog',
+      'Are you sure you want to clear the entire backlog?',
+      'Clear All',
+      'Cancel'
+    );
+    if (confirmed) {
       send({ type: 'clearBacklog' });
     }
   });
