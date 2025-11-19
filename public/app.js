@@ -138,6 +138,7 @@ let lastWaterfallDrawTime = 0;
 const WATERFALL_FRAME_INTERVAL = 50; // ms, ~20 FPS
 const WATERFALL_SEND_INTERVAL = WATERFALL_FRAME_INTERVAL; // keep send rate in sync with draw rate
 const WATERFALL_DOWNSAMPLED_BINS = 128;
+const WATERFALL_MAX_FREQ_HZ = 4000; // Limit visible / transmitted band to ~4 kHz
 
 // DOM elements
 const connectionStatus = document.getElementById('connectionStatus');
@@ -254,7 +255,7 @@ function handleServerMessage(message) {
     case 'waterfallFrame':
       // Non-audio clients render waterfall frames received from the audio client
       if (!isAudioClient && Array.isArray(message.bins)) {
-        console.log('Received waterfall frame with', message.bins.length, 'bins');
+        //console.log('Received waterfall frame with', message.bins.length, 'bins');
         drawRemoteWaterfall(message.bins);
       }
       break;
@@ -561,13 +562,17 @@ function drawColumnOnCanvas(ctx, canvas, bins) {
   // New column on the right
   const column = ctx.createImageData(1, height);
 
+  // Determine how many bins we actually want to use (limit to max frequency)
+  const effectiveBinCount = getEffectiveBinCount(bins.length);
+  const maxBinIndex = effectiveBinCount - 1;
+
   // Sample a few bins to see what we're drawing
   let sampleBins = [];
   for (let y = 0; y < height; y++) {
     const relY = 1 - y / height; // 0 at bottom, 1 at top
     const binIndex = Math.min(
-      bins.length - 1,
-      Math.max(0, Math.floor(relY * bins.length))
+      maxBinIndex,
+      Math.max(0, Math.floor(relY * effectiveBinCount))
     );
     const mag = bins[binIndex] / 255;
     if (y % 50 === 0) sampleBins.push({ y, binIndex, binValue: bins[binIndex], mag });
@@ -594,21 +599,24 @@ function maybeSendWaterfallFrame(bins) {
   lastWaterfallSendTime = now;
 
   const src = bins;
+
+  // Only use bins up to our maximum frequency
+  const effectiveBinCount = getEffectiveBinCount(src.length);
   const targetLength = WATERFALL_DOWNSAMPLED_BINS;
   const result = new Uint8Array(targetLength);
-  const binSize = src.length / targetLength;
+  const binSize = effectiveBinCount / targetLength;
 
   for (let i = 0; i < targetLength; i++) {
     const start = Math.floor(i * binSize);
     const end = Math.floor((i + 1) * binSize);
     let max = 0;
-    for (let j = start; j < end && j < src.length; j++) {
+    for (let j = start; j < end && j < effectiveBinCount; j++) {
       if (src[j] > max) max = src[j];
     }
     result[i] = max;
   }
 
-  console.log('Sending waterfall frame with', result.length, 'bins');
+  //console.log('Sending waterfall frame with', result.length, 'bins');
   send({ type: 'waterfallFrame', bins: Array.from(result) });
 }
 
@@ -629,10 +637,25 @@ function drawRemoteWaterfall(bins) {
 
   // Only setup (resize/init context) but don't clear unless contexts are null
   setupWaterfallCanvases(false); // Don't clear - we want to accumulate frames!
-  console.log('Drawing remote waterfall column, canvas dimensions:',
-    waterfallCanvas ? `${waterfallCanvas.width}x${waterfallCanvas.height}` : 'null',
-    embeddedWaterfallCanvas ? `${embeddedWaterfallCanvas.width}x${embeddedWaterfallCanvas.height}` : 'null');
+  //console.log('Drawing remote waterfall column, canvas dimensions:',
+  //  waterfallCanvas ? `${waterfallCanvas.width}x${waterfallCanvas.height}` : 'null',
+  //  embeddedWaterfallCanvas ? `${embeddedWaterfallCanvas.width}x${embeddedWaterfallCanvas.height}` : 'null');
   drawWaterfallColumn(bins);
+}
+
+// Compute how many FFT bins correspond to our maximum desired frequency
+function getEffectiveBinCount(totalBins) {
+  try {
+    if (!audioContext || !waterfallAnalyser) return totalBins;
+    const binHz = audioContext.sampleRate / waterfallAnalyser.fftSize;
+    if (!binHz || !isFinite(binHz)) return totalBins;
+    const maxBinByFreq = Math.floor(WATERFALL_MAX_FREQ_HZ / binHz);
+    const clamped = Math.max(1, Math.min(totalBins, maxBinByFreq + 1)); // +1 because index is inclusive
+    return clamped;
+  } catch (e) {
+    console.warn('getEffectiveBinCount error, falling back to totalBins', e);
+    return totalBins;
+  }
 }
 
 // Play a tone
