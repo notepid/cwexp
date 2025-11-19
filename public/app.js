@@ -135,7 +135,7 @@ let embeddedWaterfallCanvas = null;
 let embeddedWaterfallCtx = null;
 let lastWaterfallSendTime = 0;
 let lastWaterfallDrawTime = 0;
-const WATERFALL_FRAME_INTERVAL = 50; // ms, ~20 FPS
+const WATERFALL_FRAME_INTERVAL = 5; // ms, ~200 FPS
 const WATERFALL_SEND_INTERVAL = WATERFALL_FRAME_INTERVAL; // keep send rate in sync with draw rate
 const WATERFALL_DOWNSAMPLED_BINS = 128;
 const WATERFALL_MAX_FREQ_HZ = 4000; // Limit visible / transmitted band to ~4 kHz
@@ -169,6 +169,8 @@ const waterfallView = document.getElementById('waterfallView');
 const embeddedWaterfallSection = document.getElementById('embeddedWaterfallSection');
 const startWaterfallBtn = document.getElementById('startWaterfallBtn');
 const stopWaterfallBtn = document.getElementById('stopWaterfallBtn');
+const startWaterfallBtnEmbedded = document.getElementById('startWaterfallBtnEmbedded');
+const stopWaterfallBtnEmbedded = document.getElementById('stopWaterfallBtnEmbedded');
 const waterfallStatus = document.getElementById('waterfallStatus');
 
 // Canvas references (assigned during init)
@@ -329,7 +331,7 @@ function updateAudioButtons() {
 
 // Update waterfall controls based on audio client state and running status
 function updateWaterfallControls() {
-  if (!startWaterfallBtn || !stopWaterfallBtn || !waterfallStatus) return;
+  if (!waterfallStatus) return;
 
   // Always show the waterfall section (even for non-audio clients receiving broadcast)
   if (embeddedWaterfallSection) {
@@ -337,14 +339,25 @@ function updateWaterfallControls() {
     embeddedWaterfallSection.style.opacity = '1';
   }
 
+  // Helper function to update button states
+  const updateButtons = (startBtn, stopBtn) => {
+    if (!startBtn || !stopBtn) return;
+    if (!isAudioClient) {
+      startBtn.disabled = true;
+      stopBtn.disabled = true;
+    } else {
+      startBtn.disabled = waterfallRunning;
+      stopBtn.disabled = !waterfallRunning;
+    }
+  };
+
+  // Update both sets of buttons (waterfall view and embedded in audio control)
+  updateButtons(startWaterfallBtn, stopWaterfallBtn);
+  updateButtons(startWaterfallBtnEmbedded, stopWaterfallBtnEmbedded);
+
   if (!isAudioClient) {
-    startWaterfallBtn.disabled = true;
-    stopWaterfallBtn.disabled = true;
     waterfallStatus.textContent = 'Viewing waterfall from audio client. Only the audio client can control it.';
   } else {
-    startWaterfallBtn.disabled = waterfallRunning;
-    stopWaterfallBtn.disabled = !waterfallRunning;
-
     if (waterfallRunning) {
       waterfallStatus.textContent = 'Waterfall running. Broadcasting to all clients.';
     } else if (!micStream) {
@@ -582,10 +595,6 @@ function drawColumnOnCanvas(ctx, canvas, bins) {
     column.data[idx + 1] = color.g;
     column.data[idx + 2] = color.b;
     column.data[idx + 3] = 255;
-  }
-
-  if (Math.random() < 0.05) { // Log occasionally to avoid spam
-    console.log('Sample bins being drawn:', sampleBins);
   }
 
   ctx.putImageData(column, width - 1, 0);
@@ -911,7 +920,7 @@ function setupEventListeners() {
     });
   }
 
-  // Waterfall controls
+  // Waterfall controls (waterfall view tab)
   if (startWaterfallBtn) {
     startWaterfallBtn.addEventListener('click', () => {
       startWaterfall();
@@ -920,6 +929,19 @@ function setupEventListeners() {
 
   if (stopWaterfallBtn) {
     stopWaterfallBtn.addEventListener('click', () => {
+      stopWaterfall();
+    });
+  }
+
+  // Waterfall controls (embedded in audio control section)
+  if (startWaterfallBtnEmbedded) {
+    startWaterfallBtnEmbedded.addEventListener('click', () => {
+      startWaterfall();
+    });
+  }
+
+  if (stopWaterfallBtnEmbedded) {
+    stopWaterfallBtnEmbedded.addEventListener('click', () => {
       stopWaterfall();
     });
   }
