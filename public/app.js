@@ -126,6 +126,7 @@ let config = {
 // Waterfall state
 let micStream = null;
 let waterfallAnalyser = null;
+let waterfallSourceNode = null;
 let waterfallDataArray = null;
 let waterfallAnimationId = null;
 let waterfallRunning = false;
@@ -135,7 +136,8 @@ let embeddedWaterfallCanvas = null;
 let embeddedWaterfallCtx = null;
 let lastWaterfallSendTime = 0;
 let lastWaterfallDrawTime = 0;
-const WATERFALL_FRAME_INTERVAL = 5; // ms, ~200 FPS
+let lastWaterfallFrameReceived = 0;
+const WATERFALL_FRAME_INTERVAL = 50; // ms, ~20 FPS
 const WATERFALL_SEND_INTERVAL = WATERFALL_FRAME_INTERVAL; // keep send rate in sync with draw rate
 const WATERFALL_DOWNSAMPLED_BINS = 128;
 const WATERFALL_MAX_FREQ_HZ = 4000; // Limit visible / transmitted band to ~4 kHz
@@ -333,9 +335,13 @@ function updateAudioButtons() {
 function updateWaterfallControls() {
   if (!waterfallStatus) return;
 
-  // Always show the waterfall section (even for non-audio clients receiving broadcast)
+  // Update aria-hidden based on whether waterfall has content
+  // The section has content if: waterfall is running locally OR we received frames recently
   if (embeddedWaterfallSection) {
-    embeddedWaterfallSection.setAttribute('aria-hidden', 'false');
+    const hasRecentFrames = lastWaterfallFrameReceived > 0 && 
+                            (performance.now() - lastWaterfallFrameReceived < 5000); // 5 second timeout
+    const hasContent = waterfallRunning || hasRecentFrames;
+    embeddedWaterfallSection.setAttribute('aria-hidden', hasContent ? 'false' : 'true');
     embeddedWaterfallSection.style.opacity = '1';
   }
 
@@ -387,22 +393,22 @@ function initAudioContext() {
 function setupWaterfallCanvases(shouldClear = false) {
   if (waterfallCanvas) {
     resizeCanvas(waterfallCanvas);
-    if (!waterfallCanvasCtx) {
+    const isFirstInit = !waterfallCanvasCtx;
+    if (isFirstInit) {
       waterfallCanvasCtx = waterfallCanvas.getContext('2d');
-      shouldClear = true; // Always clear on first initialization
     }
-    if (shouldClear) {
+    if (shouldClear || isFirstInit) {
       clearCanvas(waterfallCanvasCtx, waterfallCanvas);
     }
   }
 
   if (embeddedWaterfallCanvas) {
     resizeCanvas(embeddedWaterfallCanvas);
-    if (!embeddedWaterfallCtx) {
+    const isFirstInit = !embeddedWaterfallCtx;
+    if (isFirstInit) {
       embeddedWaterfallCtx = embeddedWaterfallCanvas.getContext('2d');
-      shouldClear = true; // Always clear on first initialization
     }
-    if (shouldClear) {
+    if (shouldClear || isFirstInit) {
       clearCanvas(embeddedWaterfallCtx, embeddedWaterfallCanvas);
     }
   }
@@ -449,6 +455,7 @@ async function initWaterfallAudio() {
     });
 
     const source = audioContext.createMediaStreamSource(micStream);
+    waterfallSourceNode = source;
     waterfallAnalyser = audioContext.createAnalyser();
     waterfallAnalyser.fftSize = 2048;
     waterfallAnalyser.smoothingTimeConstant = 0.8;
@@ -456,6 +463,26 @@ async function initWaterfallAudio() {
     waterfallAnalyser.maxDecibels = -30;
 
     source.connect(waterfallAnalyser);
+
+    // Validate that requested audio constraints were applied
+    const trackSettings = micStream.getAudioTracks()[0].getSettings();
+    const constraintIssues = [];
+    if (trackSettings.echoCancellation !== false) {
+      constraintIssues.push('echo cancellation');
+    }
+    if (trackSettings.noiseSuppression !== false) {
+      constraintIssues.push('noise suppression');
+    }
+    if (trackSettings.autoGainControl !== false) {
+      constraintIssues.push('auto gain control');
+    }
+    if (constraintIssues.length > 0) {
+      showNotification(
+        'Warning: The browser did not disable ' + constraintIssues.join(', ') +
+        '. Audio analysis may be affected.',
+        'error'
+      );
+    }
 
     waterfallDataArray = new Uint8Array(waterfallAnalyser.frequencyBinCount);
     waterfallStatus.textContent = 'Microphone ready. Start the waterfall to view activity.';
@@ -517,6 +544,11 @@ function stopWaterfall() {
     waterfallAnimationId = null;
   }
 
+  if (waterfallSourceNode) {
+    waterfallSourceNode.disconnect();
+    waterfallSourceNode = null;
+  }
+
   if (micStream) {
     micStream.getTracks().forEach(track => track.stop());
     micStream = null;
@@ -532,12 +564,22 @@ function stopWaterfall() {
 // Gamma correction exponent for perceptual brightness mapping in waterfall display
 const BRIGHTNESS_GAMMA = 1.4; // Gamma correction for perceptual brightness
 
+// Waterfall color gradient constants.
+// These values define the base and range for each RGB channel in the waterfall display.
+// The chosen values create a gradient from dark blue (low magnitude) to bright yellow/white (high magnitude).
+const WATERFALL_COLOR_R_BASE = 20;   // Red channel base value
+const WATERFALL_COLOR_R_RANGE = 80;  // Red channel range
+const WATERFALL_COLOR_G_BASE = 80;   // Green channel base value
+const WATERFALL_COLOR_G_RANGE = 160; // Green channel range
+const WATERFALL_COLOR_B_BASE = 120;  // Blue channel base value
+const WATERFALL_COLOR_B_RANGE = 135; // Blue channel range
+
 // Map magnitude (0..1) to RGB color
 function magnitudeToColor(mag) {
   const brightness = Math.pow(Math.max(0, Math.min(1, mag)), BRIGHTNESS_GAMMA);
-  const r = 20 + Math.floor(80 * brightness);
-  const g = 80 + Math.floor(160 * brightness);
-  const b = 120 + Math.floor(135 * brightness);
+  const r = WATERFALL_COLOR_R_BASE + Math.floor(WATERFALL_COLOR_R_RANGE * brightness);
+  const g = WATERFALL_COLOR_G_BASE + Math.floor(WATERFALL_COLOR_G_RANGE * brightness);
+  const b = WATERFALL_COLOR_B_BASE + Math.floor(WATERFALL_COLOR_B_RANGE * brightness);
   return {
     r: Math.max(0, Math.min(255, r)),
     g: Math.max(0, Math.min(255, g)),
@@ -583,8 +625,6 @@ function drawColumnOnCanvas(ctx, canvas, bins) {
   const effectiveBinCount = getEffectiveBinCount(bins.length);
   const maxBinIndex = effectiveBinCount - 1;
 
-  // Sample a few bins to see what we're drawing
-  let sampleBins = [];
   for (let y = 0; y < height; y++) {
     const relY = 1 - y / height; // 0 at bottom, 1 at top
     const binIndex = Math.min(
@@ -592,7 +632,6 @@ function drawColumnOnCanvas(ctx, canvas, bins) {
       Math.max(0, Math.floor(relY * effectiveBinCount))
     );
     const mag = bins[binIndex] / 255;
-    if (y % 50 === 0) sampleBins.push({ y, binIndex, binValue: bins[binIndex], mag });
     const color = magnitudeToColor(mag);
     const idx = y * 4;
     column.data[idx] = color.r;
@@ -640,6 +679,9 @@ function drawRemoteWaterfall(bins) {
     return;
   }
 
+  // Track that we received a waterfall frame
+  lastWaterfallFrameReceived = performance.now();
+
   // Ensure canvases exist and are properly sized (but don't clear every frame!)
   if (!waterfallCanvas) {
     waterfallCanvas = document.getElementById('waterfallCanvas');
@@ -654,14 +696,21 @@ function drawRemoteWaterfall(bins) {
   //  waterfallCanvas ? `${waterfallCanvas.width}x${waterfallCanvas.height}` : 'null',
   //  embeddedWaterfallCanvas ? `${embeddedWaterfallCanvas.width}x${embeddedWaterfallCanvas.height}` : 'null');
   drawWaterfallColumn(bins);
+  
+  // Update aria-hidden state since we're receiving frames
+  updateWaterfallControls();
 }
 
 // Compute how many FFT bins correspond to our maximum desired frequency
 function getEffectiveBinCount(totalBins) {
   try {
     if (!audioContext || !waterfallAnalyser) return totalBins;
+    if (!waterfallAnalyser.fftSize || waterfallAnalyser.fftSize <= 0 || !isFinite(waterfallAnalyser.fftSize)) {
+      console.warn('Invalid fftSize:', waterfallAnalyser.fftSize);
+      return totalBins;
+    }
     const binHz = audioContext.sampleRate / waterfallAnalyser.fftSize;
-    if (!binHz || !isFinite(binHz)) return totalBins;
+    if (!binHz || !isFinite(binHz) || binHz <= 0) return totalBins;
     const maxBinByFreq = Math.floor(WATERFALL_MAX_FREQ_HZ / binHz);
     const clamped = Math.max(1, Math.min(totalBins, maxBinByFreq + 1)); // +1 because index is inclusive
     return clamped;
@@ -959,6 +1008,9 @@ function setActiveView(view) {
   managerViewTab.classList.toggle('active', showManager);
   waterfallViewTab.classList.toggle('active', !showManager);
 
+  managerViewTab.setAttribute('aria-selected', showManager ? 'true' : 'false');
+  waterfallViewTab.setAttribute('aria-selected', showManager ? 'false' : 'true');
+
   managerView.classList.toggle('active', showManager);
   waterfallView.classList.toggle('active', !showManager);
 
@@ -974,9 +1026,45 @@ function init() {
   updateWaterfallControls();
 
   window.addEventListener('resize', () => {
+    // Preserve waterfall canvas content
+    let waterfallImageData = null;
+    let embeddedWaterfallImageData = null;
+    if (waterfallCanvas && waterfallCanvasCtx) {
+      waterfallImageData = waterfallCanvasCtx.getImageData(0, 0, waterfallCanvas.width, waterfallCanvas.height);
+    }
+    if (embeddedWaterfallCanvas && embeddedWaterfallCtx) {
+      embeddedWaterfallImageData = embeddedWaterfallCtx.getImageData(0, 0, embeddedWaterfallCanvas.width, embeddedWaterfallCanvas.height);
+    }
+    
     waterfallCanvasCtx = null;
     embeddedWaterfallCtx = null;
     setupWaterfallCanvases();
+    
+    // Restore waterfall canvas content
+    if (waterfallImageData && waterfallCanvasCtx) {
+      // If canvas size changed, scale the image data to fit
+      if (waterfallImageData.width !== waterfallCanvas.width || waterfallImageData.height !== waterfallCanvas.height) {
+        // Create an offscreen canvas to scale the image
+        const offscreen = document.createElement('canvas');
+        offscreen.width = waterfallImageData.width;
+        offscreen.height = waterfallImageData.height;
+        offscreen.getContext('2d').putImageData(waterfallImageData, 0, 0);
+        waterfallCanvasCtx.drawImage(offscreen, 0, 0, waterfallCanvas.width, waterfallCanvas.height);
+      } else {
+        waterfallCanvasCtx.putImageData(waterfallImageData, 0, 0);
+      }
+    }
+    if (embeddedWaterfallImageData && embeddedWaterfallCtx) {
+      if (embeddedWaterfallImageData.width !== embeddedWaterfallCanvas.width || embeddedWaterfallImageData.height !== embeddedWaterfallCanvas.height) {
+        const offscreen = document.createElement('canvas');
+        offscreen.width = embeddedWaterfallImageData.width;
+        offscreen.height = embeddedWaterfallImageData.height;
+        offscreen.getContext('2d').putImageData(embeddedWaterfallImageData, 0, 0);
+        embeddedWaterfallCtx.drawImage(offscreen, 0, 0, embeddedWaterfallCanvas.width, embeddedWaterfallCanvas.height);
+      } else {
+        embeddedWaterfallCtx.putImageData(embeddedWaterfallImageData, 0, 0);
+      }
+    }
   });
 
   // Clean up on unload

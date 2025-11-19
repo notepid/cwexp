@@ -60,7 +60,12 @@ function getStateForClient(clientId) {
 
 wss.on('connection', (ws) => {
   const clientId = ++clientIdCounter;
-  clients.set(clientId, { ws, id: clientId });
+  clients.set(clientId, { 
+    ws, 
+    id: clientId,
+    waterfallFrameCount: 0,
+    waterfallFrameResetTime: Date.now()
+  });
 
   console.log(`Client ${clientId} connected. Total clients: ${clients.size}`);
 
@@ -264,17 +269,58 @@ function handleMessage(clientId, message) {
 
     case 'waterfallFrame':
       // Forward downsampled waterfall frames from the audio client to all clients
-      if (Array.isArray(message.bins) && state.audioClientId === clientId) {
-        //console.log(`Broadcasting waterfall frame from client ${clientId} with ${message.bins.length} bins to ${clients.size} clients`);
-        broadcast({
-          type: 'waterfallFrame',
-          bins: message.bins
-        });
-      } else if (!Array.isArray(message.bins)) {
+      // with validation and rate limiting
+      
+      // Validate bins is an array
+      if (!Array.isArray(message.bins)) {
         console.warn(`Invalid waterfall frame from client ${clientId}: bins not an array`);
-      } else if (state.audioClientId !== clientId) {
-        console.warn(`Ignoring waterfall frame from non-audio client ${clientId} (audio client is ${state.audioClientId})`);
+        break;
       }
+      
+      // Validate client is the audio client
+      if (state.audioClientId !== clientId) {
+        console.warn(`Ignoring waterfall frame from non-audio client ${clientId} (audio client is ${state.audioClientId})`);
+        break;
+      }
+      
+      // Validate array length and contents
+      if (message.bins.length === 0 || message.bins.length > 2048) {
+        console.warn(`Invalid waterfall frame from client ${clientId}: invalid array length ${message.bins.length}`);
+        break;
+      }
+      
+      // Validate array elements are numbers in expected range (0-255 for Uint8Array values)
+      const validBins = message.bins.every(bin => 
+        typeof bin === 'number' && bin >= 0 && bin <= 255 && Number.isInteger(bin)
+      );
+      if (!validBins) {
+        console.warn(`Invalid waterfall frame from client ${clientId}: bins contain invalid values`);
+        break;
+      }
+      
+      // Rate limiting: max 30 frames per second
+      const client = clients.get(clientId);
+      const now = Date.now();
+      const timeSinceReset = now - client.waterfallFrameResetTime;
+      
+      if (timeSinceReset >= 1000) {
+        // Reset counter every second
+        client.waterfallFrameCount = 0;
+        client.waterfallFrameResetTime = now;
+      }
+      
+      if (client.waterfallFrameCount >= 30) {
+        // Silently drop frames over the limit
+        break;
+      }
+      
+      client.waterfallFrameCount++;
+      
+      //console.log(`Broadcasting waterfall frame from client ${clientId} with ${message.bins.length} bins to ${clients.size} clients`);
+      broadcast({
+        type: 'waterfallFrame',
+        bins: message.bins
+      });
       break;
 
     default:
