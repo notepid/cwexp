@@ -91,13 +91,13 @@
                 <div id="nowPlayingMorse" class="now-playing-morse"></div>
             </section>
 
-            <section class="waterfall-embed" id="embeddedWaterfallSection" aria-hidden="true">
-                <h2>Waterfall (Local preview)</h2>
+            <section class="waterfall-embed" id="embeddedWaterfallSection" aria-hidden="false">
+                <h2>Waterfall (Live)</h2>
                 <div class="waterfall-embed-inner">
                     <canvas id="embeddedWaterfallCanvas"></canvas>
                 </div>
                 <p class="waterfall-note">
-                    Microphone-based CW waterfall. Only visible on the client providing audio.
+                    Microphone-based CW waterfall. Broadcast from the audio client to all connected clients.
                 </p>
             </section>
             </div>
@@ -105,7 +105,7 @@
             <section id="waterfallView" class="view-panel waterfall-view" role="tabpanel" aria-labelledby="waterfallViewTab" hidden>
                 <h2>Waterfall View</h2>
                 <p class="waterfall-description">
-                    Sideways waterfall of incoming audio using your browser microphone. Only the audio client can start the waterfall.
+                    Sideways waterfall of incoming audio using the audio client's microphone. Broadcast to all connected clients.
                 </p>
                 <div class="waterfall-controls">
                     <button id="startWaterfallBtn" class="btn btn-primary" disabled>Start Waterfall</button>

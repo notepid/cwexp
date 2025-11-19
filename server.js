@@ -265,10 +265,15 @@ function handleMessage(clientId, message) {
     case 'waterfallFrame':
       // Forward downsampled waterfall frames from the audio client to all clients
       if (Array.isArray(message.bins) && state.audioClientId === clientId) {
+        console.log(`Broadcasting waterfall frame from client ${clientId} with ${message.bins.length} bins to ${clients.size} clients`);
         broadcast({
           type: 'waterfallFrame',
           bins: message.bins
         });
+      } else if (!Array.isArray(message.bins)) {
+        console.warn(`Invalid waterfall frame from client ${clientId}: bins not an array`);
+      } else if (state.audioClientId !== clientId) {
+        console.warn(`Ignoring waterfall frame from non-audio client ${clientId} (audio client is ${state.audioClientId})`);
       }
       break;
 

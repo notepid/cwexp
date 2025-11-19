@@ -15,19 +15,19 @@ function showNotification(message, type = 'info') {
   const notification = document.createElement('div');
   notification.className = `notification ${type}`;
   notification.setAttribute('role', 'alert');
-  
+
   const icon = document.createElement('span');
   icon.className = 'notification-icon';
   icon.textContent = type === 'error' ? '⚠️' : type === 'success' ? '✓' : 'ℹ️';
-  
+
   const messageEl = document.createElement('span');
   messageEl.className = 'notification-message';
   messageEl.textContent = message;
-  
+
   notification.appendChild(icon);
   notification.appendChild(messageEl);
   notificationContainer.appendChild(notification);
-  
+
   // Remove after animation completes
   setTimeout(() => {
     notification.remove();
@@ -42,22 +42,22 @@ function showModal(title, message, confirmText = 'OK', cancelText = 'Cancel') {
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-labelledby', 'modal-title');
-    
+
     const dialog = document.createElement('div');
     dialog.className = 'modal-dialog';
-    
+
     const header = document.createElement('div');
     header.className = 'modal-header';
     header.id = 'modal-title';
     header.textContent = title;
-    
+
     const body = document.createElement('div');
     body.className = 'modal-body';
     body.textContent = message;
-    
+
     const footer = document.createElement('div');
     footer.className = 'modal-footer';
-    
+
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-secondary';
     cancelBtn.textContent = cancelText;
@@ -65,7 +65,7 @@ function showModal(title, message, confirmText = 'OK', cancelText = 'Cancel') {
       overlay.remove();
       resolve(false);
     };
-    
+
     const confirmBtn = document.createElement('button');
     confirmBtn.className = 'btn btn-primary';
     confirmBtn.textContent = confirmText;
@@ -73,20 +73,20 @@ function showModal(title, message, confirmText = 'OK', cancelText = 'Cancel') {
       overlay.remove();
       resolve(true);
     };
-    
+
     footer.appendChild(cancelBtn);
     footer.appendChild(confirmBtn);
-    
+
     dialog.appendChild(header);
     dialog.appendChild(body);
     dialog.appendChild(footer);
     overlay.appendChild(dialog);
-    
+
     document.body.appendChild(overlay);
-    
+
     // Focus on confirm button
     confirmBtn.focus();
-    
+
     // Close on overlay click
     overlay.onclick = (e) => {
       if (e.target === overlay) {
@@ -94,7 +94,7 @@ function showModal(title, message, confirmText = 'OK', cancelText = 'Cancel') {
         resolve(false);
       }
     };
-    
+
     // Close on Escape key
     const handleEscape = (e) => {
       if (e.key === 'Escape') {
@@ -252,6 +252,7 @@ function handleServerMessage(message) {
     case 'waterfallFrame':
       // Non-audio clients render waterfall frames received from the audio client
       if (!isAudioClient && Array.isArray(message.bins)) {
+        console.log('Received waterfall frame with', message.bins.length, 'bins');
         drawRemoteWaterfall(message.bins);
       }
       break;
@@ -312,7 +313,7 @@ function updateAudioButtons() {
   releaseAudioBtn.disabled = !isAudioClient;
   playAllBtn.disabled = !isAudioClient;
   stopBtn.disabled = !isPlaybackEnabled;
-  
+
   // Update button text based on playback mode
   if (isPlaybackEnabled) {
     playAllBtn.textContent = 'Disable Playback';
@@ -327,25 +328,22 @@ function updateAudioButtons() {
 function updateWaterfallControls() {
   if (!startWaterfallBtn || !stopWaterfallBtn || !waterfallStatus) return;
 
+  // Always show the waterfall section (even for non-audio clients receiving broadcast)
+  if (embeddedWaterfallSection) {
+    embeddedWaterfallSection.setAttribute('aria-hidden', 'false');
+    embeddedWaterfallSection.style.opacity = '1';
+  }
+
   if (!isAudioClient) {
     startWaterfallBtn.disabled = true;
     stopWaterfallBtn.disabled = true;
-    waterfallStatus.textContent = 'Only the audio output client can start the waterfall.';
-    if (embeddedWaterfallSection) {
-      embeddedWaterfallSection.setAttribute('aria-hidden', 'true');
-      embeddedWaterfallSection.style.opacity = '0.4';
-    }
+    waterfallStatus.textContent = 'Viewing waterfall from audio client. Only the audio client can control it.';
   } else {
     startWaterfallBtn.disabled = waterfallRunning;
     stopWaterfallBtn.disabled = !waterfallRunning;
 
-    if (embeddedWaterfallSection) {
-      embeddedWaterfallSection.setAttribute('aria-hidden', 'false');
-      embeddedWaterfallSection.style.opacity = '1';
-    }
-
     if (waterfallRunning) {
-      waterfallStatus.textContent = 'Waterfall running.';
+      waterfallStatus.textContent = 'Waterfall running. Broadcasting to all clients.';
     } else if (!micStream) {
       waterfallStatus.textContent = 'Waterfall ready. Click \"Start Waterfall\" to begin.';
     } else {
@@ -370,21 +368,27 @@ function initAudioContext() {
 }
 
 // Initialize or resize waterfall canvases
-function setupWaterfallCanvases() {
+function setupWaterfallCanvases(shouldClear = false) {
   if (waterfallCanvas) {
     resizeCanvas(waterfallCanvas);
     if (!waterfallCanvasCtx) {
       waterfallCanvasCtx = waterfallCanvas.getContext('2d');
+      shouldClear = true; // Always clear on first initialization
     }
-    clearCanvas(waterfallCanvasCtx, waterfallCanvas);
+    if (shouldClear) {
+      clearCanvas(waterfallCanvasCtx, waterfallCanvas);
+    }
   }
 
   if (embeddedWaterfallCanvas) {
     resizeCanvas(embeddedWaterfallCanvas);
     if (!embeddedWaterfallCtx) {
       embeddedWaterfallCtx = embeddedWaterfallCanvas.getContext('2d');
+      shouldClear = true; // Always clear on first initialization
     }
-    clearCanvas(embeddedWaterfallCtx, embeddedWaterfallCanvas);
+    if (shouldClear) {
+      clearCanvas(embeddedWaterfallCtx, embeddedWaterfallCanvas);
+    }
   }
 }
 
@@ -463,7 +467,7 @@ async function startWaterfall() {
     return;
   }
 
-  setupWaterfallCanvases();
+  setupWaterfallCanvases(true); // Clear on start
   waterfallRunning = true;
   updateWaterfallControls();
 
@@ -533,10 +537,16 @@ function drawWaterfallColumn(bins) {
 }
 
 function drawColumnOnCanvas(ctx, canvas, bins) {
-  if (!ctx || !canvas) return;
+  if (!ctx || !canvas) {
+    console.log('drawColumnOnCanvas: missing ctx or canvas');
+    return;
+  }
   const width = canvas.width;
   const height = canvas.height;
-  if (!width || !height) return;
+  if (!width || !height) {
+    console.log('drawColumnOnCanvas: invalid dimensions', width, height);
+    return;
+  }
 
   // Scroll existing image one pixel to the left
   const imageData = ctx.getImageData(1, 0, width - 1, height);
@@ -545,6 +555,8 @@ function drawColumnOnCanvas(ctx, canvas, bins) {
   // New column on the right
   const column = ctx.createImageData(1, height);
 
+  // Sample a few bins to see what we're drawing
+  let sampleBins = [];
   for (let y = 0; y < height; y++) {
     const relY = 1 - y / height; // 0 at bottom, 1 at top
     const binIndex = Math.min(
@@ -552,12 +564,17 @@ function drawColumnOnCanvas(ctx, canvas, bins) {
       Math.max(0, Math.floor(relY * bins.length))
     );
     const mag = bins[binIndex] / 255;
+    if (y % 50 === 0) sampleBins.push({ y, binIndex, binValue: bins[binIndex], mag });
     const color = magnitudeToColor(mag);
     const idx = y * 4;
     column.data[idx] = color.r;
     column.data[idx + 1] = color.g;
     column.data[idx + 2] = color.b;
     column.data[idx + 3] = 255;
+  }
+
+  if (Math.random() < 0.05) { // Log occasionally to avoid spam
+    console.log('Sample bins being drawn:', sampleBins);
   }
 
   ctx.putImageData(column, width - 1, 0);
@@ -585,13 +602,30 @@ function maybeSendWaterfallFrame(bins) {
     result[i] = max;
   }
 
+  console.log('Sending waterfall frame with', result.length, 'bins');
   send({ type: 'waterfallFrame', bins: Array.from(result) });
 }
 
 // Render waterfall from remote (server-sent) frames
 function drawRemoteWaterfall(bins) {
-  if (!Array.isArray(bins) || bins.length === 0) return;
-  setupWaterfallCanvases();
+  if (!Array.isArray(bins) || bins.length === 0) {
+    console.log('drawRemoteWaterfall: invalid bins');
+    return;
+  }
+
+  // Ensure canvases exist and are properly sized (but don't clear every frame!)
+  if (!waterfallCanvas) {
+    waterfallCanvas = document.getElementById('waterfallCanvas');
+  }
+  if (!embeddedWaterfallCanvas) {
+    embeddedWaterfallCanvas = document.getElementById('embeddedWaterfallCanvas');
+  }
+
+  // Only setup (resize/init context) but don't clear unless contexts are null
+  setupWaterfallCanvases(false); // Don't clear - we want to accumulate frames!
+  console.log('Drawing remote waterfall column, canvas dimensions:',
+    waterfallCanvas ? `${waterfallCanvas.width}x${waterfallCanvas.height}` : 'null',
+    embeddedWaterfallCanvas ? `${embeddedWaterfallCanvas.width}x${embeddedWaterfallCanvas.height}` : 'null');
   drawWaterfallColumn(bins);
 }
 
